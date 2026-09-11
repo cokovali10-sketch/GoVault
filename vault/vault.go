@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -9,7 +10,9 @@ import (
 	"errors"
 	"io"
 	"os"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -167,6 +170,40 @@ func (v *Vault) Search(query string) []string {
 	return results
 }
 
+func (v *Vault) SearchPrefix(prefix string) []string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	var results []string
+	p := strings.ToLower(prefix)
+	for key := range v.store.Entries {
+		if strings.HasPrefix(strings.ToLower(key), p) {
+			results = append(results, key)
+		}
+	}
+	sort.Strings(results)
+	return results
+}
+
+func (v *Vault) SearchRegex(pattern string) ([]string, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	var results []string
+	for key := range v.store.Entries {
+		if re.MatchString(key) {
+			results = append(results, key)
+		}
+	}
+	sort.Strings(results)
+	return results, nil
+}
+
 func (v *Vault) SearchByTag(tag string) []string {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
@@ -218,6 +255,18 @@ func (v *Vault) Rename(oldKey, newKey string) bool {
 func (v *Vault) ChangePassword(newPassword string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+
+	v.key = deriveKey(newPassword)
+	return nil
+}
+
+func (v *Vault) RotatePassword(oldPassword, newPassword string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if !bytes.Equal(v.key, deriveKey(oldPassword)) {
+		return errors.New("old password verification failed")
+	}
 
 	v.key = deriveKey(newPassword)
 	return nil
@@ -348,13 +397,13 @@ func (v *Vault) Stats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"entries":      len(v.store.Entries),
-		"total_size":   totalSize,
-		"created_at":   v.store.CreatedAt,
-		"updated_at":   v.store.UpdatedAt,
-		"version":      v.store.Version,
-		"unique_tags":  len(tagCounts),
-		"tag_counts":   tagCounts,
+		"entries":     len(v.store.Entries),
+		"total_size":  totalSize,
+		"created_at":  v.store.CreatedAt,
+		"updated_at":  v.store.UpdatedAt,
+		"version":     v.store.Version,
+		"unique_tags": len(tagCounts),
+		"tag_counts":  tagCounts,
 	}
 }
 

@@ -89,10 +89,37 @@ func main() {
 
 	case "search":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: govault search <query>")
+			fmt.Fprintln(os.Stderr, "Usage: govault search [-prefix|-regex] <query>")
 			os.Exit(1)
 		}
-		results := v.Search(args[1])
+		mode := "exact"
+		query := args[1]
+		if len(args) >= 3 {
+			switch args[1] {
+			case "-prefix", "prefix":
+				mode = "prefix"
+				query = args[2]
+			case "-regex", "regex":
+				mode = "regex"
+				query = args[2]
+			default:
+				query = args[1]
+			}
+		}
+		var results []string
+		switch mode {
+		case "prefix":
+			results = v.SearchPrefix(query)
+		case "regex":
+			var err error
+			results, err = v.SearchRegex(query)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid regex: %v\n", err)
+				os.Exit(1)
+			}
+		default:
+			results = v.Search(query)
+		}
 		if len(results) == 0 {
 			fmt.Println("  No results.")
 		} else {
@@ -100,6 +127,69 @@ func main() {
 				fmt.Printf("  %s\n", k)
 			}
 		}
+
+	case "rename":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "Usage: govault rename <old-key> <new-key>")
+			os.Exit(1)
+		}
+		if v.Rename(args[1], args[2]) {
+			if err := v.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error saving: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("  Renamed '%s' -> '%s'\n", args[1], args[2])
+		} else {
+			fmt.Fprintf(os.Stderr, "Key '%s' not found or '%s' already exists\n", args[1], args[2])
+			os.Exit(1)
+		}
+
+	case "export":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: govault export <output-file>")
+			os.Exit(1)
+		}
+		data, err := v.ExportJSON()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error exporting: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(args[1], data, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  Exported %d entries to %s\n", v.Count(), args[1])
+
+	case "import":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: govault import <input-file>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+			os.Exit(1)
+		}
+		if err := v.ImportJSON(data); err != nil {
+			fmt.Fprintf(os.Stderr, "Error importing: %v\n", err)
+			os.Exit(1)
+		}
+		if err := v.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  Imported entries from %s\n", args[1])
+
+	case "backup":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: govault backup <backup-file>")
+			os.Exit(1)
+		}
+		if err := v.Backup(args[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating backup: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  Backup created: %s (%d entries)\n", args[1], v.Count())
 
 	case "stats":
 		stats := v.Stats()
@@ -122,5 +212,11 @@ Usage:
   govault -pass <password> rm <key>
   govault -pass <password> list
   govault -pass <password> search <query>
+  govault -pass <password> search -prefix <prefix>
+  govault -pass <password> search -regex <pattern>
+  govault -pass <password> rename <old-key> <new-key>
+  govault -pass <password> export <output-file>
+  govault -pass <password> import <input-file>
+  govault -pass <password> backup <backup-file>
   govault -pass <password> stats`)
 }
