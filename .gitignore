@@ -1,2 +1,7 @@
 govault
 *.exe
+
+# FORGE artifacts
+forge-pipe-checkpoint.json
+forge-pipe-history.jsonl
+.forge-pipe-history.jsonl
